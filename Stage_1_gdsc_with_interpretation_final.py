@@ -1,69 +1,11 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# <center>
-#   <h1 style='color:green;'> Genomics of Drug Sensitivity in Cancer (GDSC)</h1>
-#     <h2>Exploratory Data Analysis</h2>
-#     <h3>HackBio AI for Genomics Internship</h3>
-#     <h4>Team valine-asparagine-alanine</h4>
-#     <h4>Uncovering drug response patterns, cancer-type sensitivity profiles, and genomic biomarkers of pharmacological outcome</h4>
-# </center>
-# 
-# 
-# **Dataset:** <a href = 'https://github.com/HackBio-Internship/public_datasets/raw/refs/heads/main/GDSC.xlsx'>GDSC Public Repository </a>
-# 
-
-# ## Objective
-# 
-# This notebook performs an exploratory analysis of the GDSC dataset to identify:
-# 
-# - Drug sensitivity patterns
-# - Cancer-specific therapeutic responses
-# - Highly selective anti-cancer drugs
-# - Genomic determinants of drug response
-# - Precision oncology insights
-# 
-# 
-# 
-# ## Scientific Background
-# 
-# The Genomics of Drug Sensitivity in Cancer (GDSC) project links:
-# - Cancer cell lines
-# - Genomic features
-# - Drug response measurements
-# 
-# The aim is to understand how tumour molecular profiles influence therapeutic sensitivity.
-# 
-# 
-
-# import the necessary libraries and the GDSC dataset
-
-# # Setup & Data Loading
-
-# In[10]:
-
-
+##import the necessary libraries and the GDSC dataset
 import numpy as np
 import pandas as pd
-
-
-# In[11]:
-
-
+##import the data
 gdsc = pd.read_excel("GDSC.xlsx")
-
-
-# In[12]:
-
-
+## identify the key variables
 gdsc.head()
-
-
-# The Key Variables in the Datasets include *LN_IC50, AUC, Z_SCORE* (sensitivity metrics); *DRUG_NAME, TARGET, TARGET_PATHWAY* (therapeutic agents); *CELL_LINE_NAME, TCGA_DESC, Microsatellite instability Status* (Cancer Models); and CNA, Gene Expression, Methylation (Omics)
-
-# In[13]:
-
-
+##description of the data
 gdsc.shape
 gdsc.columns
 gdsc.info()
@@ -71,45 +13,44 @@ gdsc.describe()
 gdsc["DRUG_NAME"].nunique()
 gdsc["TCGA_DESC"].nunique()
 gdsc["CELL_LINE_NAME"].nunique()
-
-
-# In[14]:
-
-
+## Identify the missing values
 missing = gdsc.isnull().sum().sort_values(ascending=False)
 missing.head(20)
-
-
-# There is no missing values
-
-# In[15]:
-
-
+## Identify the duplicates
 gdsc = gdsc.drop_duplicates()
 gdsc
+# Check minimum and maximum AUC values
+print("Minimum AUC:", gdsc["AUC"].min())
+print("Maximum AUC:", gdsc["AUC"].max())
+# Basic statistics
+min_val = gdsc["LN_IC50"].min()
+max_val = gdsc["LN_IC50"].max()
+median_val = gdsc["LN_IC50"].median()
 
-
-# There are duplicates in the datasets
-
-# In[99]:
-
-
+print("Minimum:", min_val)
+print("Maximum:", max_val)
+print("Median:", median_val)
+# IC50_uM back-transformed from LN_IC50
+gdsc["IC50_uM"] = np.exp(gdsc["LN_IC50"])
+gdsc["CNA_bool"] = gdsc["CNA"].map({
+    "Y": True,
+    "N": False
+})
+gdsc["Gene Expression_bool"] = gdsc["Gene Expression"].map({
+    "Y": True,
+    "N": False
+})
+gdsc["Methylation_bool"] = gdsc["Methylation"].map({
+    "Y": True,
+    "N": False
+})
+gdsc
+# drug sensitivity plot
 plt.hist(gdsc['LN_IC50'], bins=50)
 plt.xlabel('LN_IC50')
 plt.ylabel('Frequency')
 plt.title('Distribution of Drug Sensitivity')
 plt.show()
-
-
-# # Drug Sensitivity Patterns
-
-# Here, we aim to find out which drugs are highly potent, which ones fail universally, and which ones have highly specific targets (high variability).
-
-# ## Visualisation of distribution of drug sensitivity across samples
-
-# In[72]:
-
-
 # Calculate average sensitivity and variance for each drug
 drug_stats = gdsc.groupby('DRUG_NAME').agg(
     Median_LN_IC50=('LN_IC50', 'median'),
@@ -132,698 +73,601 @@ print(least_effective[['DRUG_NAME', 'Median_LN_IC50', 'Median_AUC']])
 most_variable = drug_stats.sort_values(by='Var_LN_IC50', ascending=False).head(5)
 print("\nTop 5 Most Variable Drugs (Potential Personalized Medicine Candidates):")
 print(most_variable[['DRUG_NAME', 'Var_LN_IC50']])
+# cancer cell line analysis
+# Group by cancer type
+cancer_summary = (
+    gdsc.groupby("TCGA_DESC")
+      .agg(
+          Median_LN_IC50=("LN_IC50", "median"),
+          n_Cell_Lines=("CELL_LINE_NAME", "nunique")
+      )
+      .sort_values("Median_LN_IC50")
+)
 
+cancer_summary.head(10)
+# Identify Robust vs Small Samples
+def sample_quality(n):
+    if n < 5:
+        return "⚠ Very small sample"
+    elif n <= 20:
+        return "Moderate"
+    else:
+        return "Robust"
 
-# **INTERPRETATION**
-# 
-# **1. Which Drugs Appear to be the Most Effective?**
-# 
-# The top five most effective drugs are: Romidepsin, Bortezomib, Sepantronium bromide, Docetaxel, and Daporinad.
-# 
-# **2. Which Drugs Show the Least Effectiveness?**
-# 
-# The five least effective drugs are: Ascorbate (Vitamin C), N-acetyl cysteine, Glutathione, Alpha-lipoic acid, and Temozolomide.
-# 
-# Four out of five of these compounds *(ascorbate, N-acetyl cysteine, glutathione, and alpha-lipoic acid)* are antioxidants or dietary supplements. Because they lack localized cytotoxic machinery, they do not induce cell death on their own.
-# 
-# **3. Are There Drugs with Highly Variable Responses Across Cell Lines?**
-# 
-# The five most variable drugs are Gemcitabine, AZD5991, Daporinad, Docetaxel, and BI-2536.
-# 
-# The high response variance observed in drugs like ***Gemcitabine*** and ***AZD5991*** serves as the perfect statistical springboard for genomic biomarker tracking.
+cancer_summary["Sample_Quality"] = (
+    cancer_summary["n_Cell_Lines"]
+    .apply(sample_quality)
+)
 
-# ## Cancer types analysis
-# Do certain cancer types respond better to specific drugs?
+cancer_summary.head(10)
+# Most Sensitive Cancer Types
+cancer_summary.head(10)
+# Most Resistant Cancer Types
+cancer_summary.tail(10)
+# Visualisation of drug-sensitive cancer types
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-# ## Visualisation of drug sensitivity across cancer types
+top_sensitive = cancer_summary.head(10).reset_index()
 
-# In[77]:
+plt.figure(figsize=(10,5))
 
+sns.barplot(
+    data=top_sensitive,
+    x="TCGA_DESC",
+    y="Median_LN_IC50"
+)
 
-heatmap_data = cancer_drug.pivot(
-    index="TCGA_DESC",
-    columns="DRUG_NAME",
-    values="LN_IC50"
-).sort_index(ascending=False)
+plt.title("Most Drug-Sensitive Cancer Types")
+plt.ylabel("Median LN_IC50")
 
-plt.figure(figsize=(60,10))
+plt.show()
+# Cancer-Type-Selective Drug Responses
+# group by cancer type and drug
+drug_cancer = (
+    gdsc.groupby(["DRUG_NAME", "TCGA_DESC"])
+      .agg(
+          Median_LN_IC50=("LN_IC50", "median")
+      )
+      .reset_index()
+)
+# Sensitivity range for each drug
+# Large range = highly selective drug
+drug_selectivity = (
+    drug_cancer.groupby("DRUG_NAME")
+    .agg(
+        Min_LN_IC50=("Median_LN_IC50", "min"),
+        Max_LN_IC50=("Median_LN_IC50", "max")
+    )
+)
+
+drug_selectivity["Range"] = (
+    drug_selectivity["Max_LN_IC50"]
+    - drug_selectivity["Min_LN_IC50"]
+)
+
+drug_selectivity = (
+    drug_selectivity
+    .sort_values("Range", ascending=False)
+)
+
+drug_selectivity.head(10)
+# Most and Least Sensitive Cancer Types
+# Most sensitive cancer type
+most_sensitive = (
+    drug_cancer.loc[
+        drug_cancer.groupby("DRUG_NAME")["Median_LN_IC50"].idxmin()
+    ]
+    .rename(columns={
+        "TCGA_DESC": "Most_Sensitive_Cancer",
+        "Median_LN_IC50": "Min_LN_IC50"
+    })
+)
+
+# Least sensitive cancer type
+least_sensitive = (
+    drug_cancer.loc[
+        drug_cancer.groupby("DRUG_NAME")["Median_LN_IC50"].idxmax()
+    ]
+    .rename(columns={
+        "TCGA_DESC": "Least_Sensitive_Cancer",
+        "Median_LN_IC50": "Max_LN_IC50"
+    })
+)
+top_selective = (
+    drug_selectivity
+    .merge(
+        most_sensitive[[
+            "DRUG_NAME",
+            "Most_Sensitive_Cancer",
+            "Min_LN_IC50"
+        ]],
+        on="DRUG_NAME"
+    )
+    .merge(
+        least_sensitive[[
+            "DRUG_NAME",
+            "Least_Sensitive_Cancer",
+            "Max_LN_IC50"
+        ]],
+        on="DRUG_NAME"
+    )
+)
+
+top_selective.head(10)
+# add pathway information
+pathway_info = (
+    gdsc[["DRUG_NAME", "TARGET_PATHWAY"]]
+    .drop_duplicates()
+)
+
+top_selective = top_selective.merge(
+    pathway_info,
+    on="DRUG_NAME",
+    how="left"
+)
+top6 = top_selective.head(6)
+
+top6
+plt.figure(figsize=(10,5))
+
+sns.barplot(
+    data=top6.reset_index(),
+    x="DRUG_NAME",
+    y="Range"
+)
+
+plt.xticks(rotation=45)
+
+plt.title("Top Cancer-Type-Selective Drugs")
+
+plt.ylabel("LN_IC50 Range")
+
+plt.show()
+# Cancer Type Sensitivity Boxplot
+plt.figure(figsize=(14,6))
+
+sns.boxplot(
+    data=gdsc,
+    x="TCGA_DESC",
+    y="LN_IC50"
+)
+
+plt.xticks(rotation=90)
+
+plt.title("Cancer Type Sensitivity Distribution")
+
+plt.show()
+# drug-cancer type heatmap
+heatmap_data = (
+    drug_cancer
+    .pivot(
+        index="DRUG_NAME",
+        columns="TCGA_DESC",
+        values="Median_LN_IC50"
+    )
+)
+
+plt.figure(figsize=(14,10))
 
 sns.heatmap(
     heatmap_data,
     cmap="coolwarm",
-    linewidths=0.5
+    center=0
 )
 
-plt.title("Drug Sensitivity Across Cancer Types")
-plt.xlabel("Drug")
-plt.ylabel("Cancer Type")
+plt.title("Drug × Cancer Type Sensitivity Heatmap")
 
 plt.show()
+# Genomic & Molecular Influences on Drug Response
+# LN_IC50 vs AUC Correlation
+corr_gdsc = gdsc[["LN_IC50", "AUC"]].dropna()
 
+# Sample dataset of 5000
+sample_df = corr_gdsc.sample(5000, random_state=42)
 
-# **Interpretation**
-# 
-# The drug sensitivity across the cancer types was visualised using a heatmap. The drugs were plotted against the cancer types to see the pattern. Blue represents higher sensitivity(lower IC50), and red represents lower sensitivity (higher IC50). The white cells represent that the drug was not tested for that cancer. The heatmap is more clumsy due to the larger number of drugs. So, filtration of top sensitive drugs is required for a much cleaner plot. 
+from scipy.stats import pearsonr, spearmanr
 
-# In[88]:
-
-
-heatmap_data = cancer_drug.pivot(
-    index="TCGA_DESC",
-    columns="DRUG_NAME",
-    values="LN_IC50"
+# Pearson correlation
+pearson_r, pearson_p = pearsonr(
+    sample_df["LN_IC50"],
+    sample_df["AUC"]
 )
 
-sorted_drugs = heatmap_data.median(axis=0).sort_values(ascending=True).index
-heatmap_data_sorted = heatmap_data[sorted_drugs]
-
-sorted_cancers = heatmap_data_sorted.median(axis=1).sort_values(ascending=True).index
-heatmap_data_final = heatmap_data_sorted.loc[sorted_cancers]
-
-plt.figure(figsize=(60, 12))
-
-sns.heatmap(
-    heatmap_data_final,
-    cmap="coolwarm",       
-    linewidths=0.2,        
-    xticklabels=True,      
-    yticklabels=True,      
-    cbar_kws={'label': 'LN_IC50 (Lower/Blue = More Sensitive)'}
+# Spearman correlation
+spearman_rho, spearman_p = spearmanr(
+    sample_df["LN_IC50"],
+    sample_df["AUC"]
 )
 
-plt.title("Landscape of Genomic Drug Sensitivity Profiling Across Human Cancer Types Sorted by Pan-Cancer Efficacy Gradient")
-plt.xlabel("Drug Name (Most Sensitive → Least Sensitive)")
-plt.ylabel("Cancer Type (TCGA Code)")
+print("Pearson r =", round(pearson_r, 3))
+print("Spearman rho =", round(spearman_rho, 3))
+# Visualisation of the relationship
+gdsc["MSI_STATUS"].value_counts()
+# MSI Status
+gdsc["Microsatellite instability Status (MSI)"].value_counts()
+# Create two groups
+msi_h = gdsc[gdsc["Microsatellite instability Status (MSI)"] == "MSI-H"]["LN_IC50"]
 
-plt.xticks(rotation=90, fontsize=9, ha='center')
-plt.yticks(fontsize=12)
+mss = gdsc[
+    gdsc["Microsatellite instability Status (MSI)"]=="MSS/MSI-L"]["LN_IC50"]
+# calculate medians
+print("MSI-H median:", msi_h.median())
+print("MSS/MSI-L median:", mss.median())
 
-plt.tight_layout()
-plt.show()
+#Mann–Whitney U Test
+from scipy.stats import mannwhitneyu
 
-
-# **Romidepsin** and **sepantronium bromide** stand out due to their remarkably low median, having the absolute lowest median concentration threshold.  
-# This indicates that they have high broad-spectrum cytotoxicity, completely eliminating cell viability across a massive portion of the treated concentration range.
-
-# ## Filteration of top sensitive drugs and visualisation through heatmap
-
-# In[101]:
-
-
-top_drugs = (
-    cancer_drug.groupby("DRUG_NAME")["LN_IC50"]
-    .std()
-    .sort_values(ascending=False)
-    .head(30)
-    .index
-)
-filtered_heatmap = heatmap_data[top_drugs]
-plt.figure(figsize=(25,10))
-
-sns.heatmap(
-    filtered_heatmap,
-    cmap="coolwarm"
+stat, p = mannwhitneyu(
+    msi_h,
+    mss,
+    alternative="two-sided"
 )
 
-plt.xticks(rotation=90)
+print("P-value:", p)
+# MSI sensitivity plot
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-plt.title("Top Selective Drugs Across Cancer Types")
-
-plt.show()
-
-
-# After filtering the top sensitive drugs using standard deviation values, a heatmap was plotted again. This heatmap shows drug sensitivity across the cancer types. The drugs Tozasertib, AZD5991, Gemcitabine, Dasatinib and Nilotinib show more variable sensitivity across the cancer types compared to other drugs. That is, they have lower IC50 values in certain cancer types than others. This shows that certain drugs are more sensitive in certain cancer types. 
-
-# ## Identification of the most selective drugs across Cancer types
-
-# In[89]:
-
-
-drug_selectivity = (
-    cancer_drug.groupby("DRUG_NAME")["LN_IC50"]
-    .std()
-    .sort_values(ascending=False)
-)
-
-
-# In[90]:
-
-
-top_variable = drug_selectivity.head(15)
-
-plt.figure(figsize=(10,6))
-
-sns.barplot(
-    x=top_variable.values,
-    y=top_variable.index
-)
-
-plt.xlabel("Standard Deviation of LN_IC50")
-plt.ylabel("Drug")
-plt.title("Most Selective Drugs Across Cancer Types")
-
-plt.show()
-
-
-# The most selective drugs across the cancer types were identified and visualised using a bar plot. The plot shows the top 15 selective drugs( these drugs have more sensitivity in certain cancer types). This was identified using the standard deviation of IC50 values, which shows the variability of the drug response across the cancers. The tozasertib drug shows a higher standard deviation (more variability in response), meaning that the drug works well only in certain cancer types.
-
-# ## Visualisation of cancer-specific response to the drug Tozasertib
-
-# In[102]:
-
-
-Tozasertib = gdsc[gdsc["DRUG_NAME"] == "Tozasertib"]
-Tozasertib_summary = (
-    Tozasertib.groupby("TCGA_DESC")["LN_IC50"]
-    .mean()
-    .sort_values()
-)
-
-Tozasertib_summary
-
-
-# In[92]:
-
-
-order = (
-    Tozasertib.groupby("TCGA_DESC")["LN_IC50"]
-    .median()
-    .sort_values()
-    .index)
-plt.figure(figsize=(14,6))
+plt.figure(figsize=(6,5))
 
 sns.boxplot(
-    data=Tozasertib,
-    x="TCGA_DESC",
-    y="LN_IC50",
-    order=order
+    data= gdsc,
+    x= "Microsatellite instability Status (MSI)",
+    y="LN_IC50"
 )
 
-plt.xticks(rotation=90)
-
-plt.title("Cancer-Specific Response to Tozasertib")
+plt.title("Drug Sensitivity by MSI Status")
 
 plt.show()
 
+# Identify MSI-H-Selective Drugs
+from scipy.stats import mannwhitneyu
+import pandas as pd
 
-# Taking the most sensitive drug tozasertib as an example, its response across the cancer types was visualised using a box plot. We can conclude that the drug works well with low IC50 values in the DLBC and ALL cancer types compared to other types. 
+results = []
 
-# ## Identification of Most Drug-Sensitive Cancer Types
+for drug in gdsc["DRUG_NAME"].unique():
 
-# In[93]:
+    sub = gdsc[gdsc["DRUG_NAME"] == drug]
 
+    group1 = sub[
+        sub["Microsatellite instability Status (MSI)"] == "MSI-H"
+    ]["LN_IC50"]
 
-cancer_type_sensitivity = (
-    gdsc.groupby("TCGA_DESC")["LN_IC50"]
-    .mean()
-    .sort_values()
+    group2 = sub[
+        sub["Microsatellite instability Status (MSI)"] == "MSS/MSI-L"]["LN_IC50"]
+
+    # Skip small groups
+    if len(group1) < 3 or len(group2) < 3:
+        continue
+
+    stat, p = mannwhitneyu(
+        group1,
+        group2,
+        alternative="two-sided"
+    )
+
+    delta = (
+        group1.median()
+        - group2.median()
+    )
+
+    results.append([
+        drug,
+        delta,
+        p
+    ])
+
+results_df = pd.DataFrame(
+    results,
+    columns=[
+        "DRUG_NAME",
+        "Delta_LN_IC50 (MSI-H - MSS median)",
+        "p_value"
+    ]
 )
-top_sensitive = cancer_type_sensitivity.head(20)
 
-top_sensitive
-plt.figure(figsize=(10,6))
+# Bonferroni Correction
+n_tests = len(results_df)
+
+results_df["bonferroni_p"] = (
+    results_df["p_value"] * n_tests
+)
+
+# identify the Significant MSI-H-Selective Drugs
+significant = results_df[
+    (results_df["bonferroni_p"] < 0.05)
+].sort_values("Delta_LN_IC50 (MSI-H - MSS median)")
+
+# add pathways
+pathways = (
+    gdsc[["DRUG_NAME", "TARGET_PATHWAY"]]
+    .drop_duplicates()
+)
+
+significant = significant.merge(
+    pathways,
+    on="DRUG_NAME",
+    how="left"
+)
+significant.head(10)
+# visualisation
+top = significant.head(10)
+
+plt.figure(figsize=(8,5))
 
 sns.barplot(
-    x=top_sensitive.values,
-    y=top_sensitive.index
+    data=top,
+    x="Delta_LN_IC50 (MSI-H - MSS median)",
+    y="DRUG_NAME"
 )
 
-plt.xlabel("Mean LN_IC50")
-
-plt.title("Most Drug-Sensitive Cancer types")
+plt.title("MSI-H Selective Drugs")
 
 plt.show()
+#Growth Properties
+gdsc["Growth Properties"].value_counts()
 
+#create 2 groups
+suspension = gdsc[
+    gdsc["Growth Properties"] == "Suspension"
+]["LN_IC50"]
 
-# ## Identification of Most Selective response Cancer Types
+adherent = gdsc[
+    gdsc["Growth Properties"] == "Adherent"
+]["LN_IC50"]
 
-# In[94]:
+#calculate median
+print("Suspension median:", suspension.median())
+print("Adherent median:", adherent.median())
 
+from scipy.stats import mannwhitneyu
 
-cancer_type_sensitivity = (
-    gdsc.groupby("TCGA_DESC")["LN_IC50"]
-    .std()
-    .sort_values(ascending=False)
+stat, p = mannwhitneyu(
+    suspension,
+    adherent,
+    alternative="two-sided"
 )
-top_sensitive = cancer_type_sensitivity.head(20)
 
-top_sensitive
-plt.figure(figsize=(10,6))
+print("P-value:", p)
+# Identify Drugs Preferentially Effective in Suspension Cells
+results = []
+
+for drug in gdsc["DRUG_NAME"].unique():
+
+    sub = gdsc[gdsc["DRUG_NAME"] == drug]
+
+    group1 = sub[
+        sub["Growth Properties"] == "Suspension"
+    ]["LN_IC50"]
+
+    group2 = sub[
+        sub["Growth Properties"] == "Adherent"
+    ]["LN_IC50"]
+
+    # Skip small groups
+    if len(group1) < 3 or len(group2) < 3:
+        continue
+
+    stat, p = mannwhitneyu(
+        group1,
+        group2,
+        alternative="two-sided"
+    )
+
+    delta = (
+        group1.median()
+        - group2.median()
+    )
+
+    results.append([
+        drug,
+        delta,
+        p
+    ])
+
+#convert into dataframe
+import pandas as pd
+
+results_df = pd.DataFrame(
+    results,
+    columns=[
+        "DRUG_NAME",
+        "Delta_LN_IC50",
+        "p_value"
+    ]
+)
+#multiple correction
+results_df["bonferroni_p"] = (
+    results_df["p_value"] * len(results_df)
+)
+
+#significant suspension selective drugs
+significant = results_df[
+    results_df["bonferroni_p"] < 0.05
+]
+
+significant = significant.sort_values(
+    "Delta_LN_IC50"
+)
+
+
+#add pathwy information
+pathways = (
+    gdsc[["DRUG_NAME", "TARGET_PATHWAY"]]
+    .drop_duplicates()
+)
+
+significant = significant.merge(
+    pathways,
+    on="DRUG_NAME",
+    how="left"
+)
+
+significant.head(10)
+# visualize
+top = significant.head(10)
+
+plt.figure(figsize=(8,5))
 
 sns.barplot(
-    x=top_sensitive.values,
-    y=top_sensitive.index
+    data=top,
+    x="Delta_LN_IC50",
+    y="DRUG_NAME"
 )
 
-plt.xlabel("Std LN_IC50")
-
-plt.title("Most selective response Cancer types")
+plt.title("Suspension-Selective Drugs")
 
 plt.show()
+# Genomic, transcriptomic and epigenomic influence on drug response
+# inspect the columns
+gdsc[["CNA", "Gene Expression", "Methylation"]].head()
 
+# CNA availability
+cna_yes = gdsc[gdsc["CNA_bool"] == True]["LN_IC50"]
+cna_no = gdsc[gdsc["CNA_bool"] == False]["LN_IC50"]
 
-# Most drug-sensitive (broadly sensitive to drugs) and drug-selective (strong response to only certain drugs) cancer types were identified using the mean and standard deviation of IC50 values. The cancer type CLL is both sensitive and selective to drugs. LAML, DLBC, and ALL are also more drug-sensitive cancer types.
+print("CNA available median:", cna_yes.median())
+print("No CNA median:", cna_no.median())
 
-# ## Interpretation
-# Yes, certain cancer types like CLL, LAML, DLBC and ALL respond better to certain drugs. Drugs like AZD5991, Tozasertib, and Gemcitabine are more selective across all the cancer types
+#statistical test
+from scipy.stats import mannwhitneyu
 
-# ## Cancer cell line analysis 
-# Do certain cancer cell lines respond better to specific drugs?
+stat, p = mannwhitneyu(
+    cna_yes,
+    cna_no,
+    alternative="two-sided"
+)
 
-# ## Identification of the best and the worst cell line response to drugs
+print("P-value:", p)
 
-# In[95]:
+# effect size
+delta = cna_yes.median() - cna_no.median()
 
+print("Delta median:", delta)
+#visualisation
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-cellline_drug_response = (
-    gdsc.groupby(["CELL_LINE_NAME", "DRUG_NAME"])["LN_IC50"]
+plt.figure(figsize=(6,5))
+
+sns.boxplot(
+    data=gdsc,
+    x="CNA_bool",
+    y="LN_IC50"
+)
+
+plt.title("Effect of CNA Availability on Drug Sensitivity")
+
+plt.show()
+# Gene expression
+expr_yes = gdsc[
+    gdsc["Gene Expression_bool"] == True
+]["LN_IC50"]
+
+expr_no = gdsc[
+    gdsc["Gene Expression_bool"] == False
+]["LN_IC50"]
+
+print("expr_yes median:", expr_yes.median())
+print("expr_no median:", expr_no.median())
+#statistical test
+stat, p = mannwhitneyu(
+    expr_yes,
+    expr_no
+)
+
+# effect size
+delta = (
+    expr_yes.median()
+    - expr_no.median()
+)
+
+print("P-value:", p)
+print("Delta:", delta)
+# visualisation
+plt.figure(figsize=(6,5))
+
+sns.boxplot(
+    data=gdsc,
+    x="Gene Expression_bool",
+    y="LN_IC50"
+)
+
+plt.title("Effect of Gene Expression Availability")
+
+plt.show()
+# Methylation
+Methylation_yes = gdsc[
+    gdsc["Methylation_bool"] == True
+]["LN_IC50"]
+
+Methylation_no = gdsc[
+    gdsc["Methylation_bool"] == False
+]["LN_IC50"]
+
+print("methylation_yes median:", Methylation_yes.median())
+print("methylation_no median:", Methylation_no.median())
+
+#statistical test
+stat, p = mannwhitneyu(
+    Methylation_yes,
+    Methylation_no
+)
+
+# effect size
+delta = (
+   Methylation_yes.median()
+    - Methylation_no.median()
+)
+
+print("P-value:", p)
+print("Delta:", delta)
+# visualisation
+plt.figure(figsize=(6,5))
+
+sns.boxplot(
+    data=gdsc,
+    x="Methylation_bool",
+    y="LN_IC50"
+)
+
+plt.title("Effect of Methylation Availability on drug sensitivity")
+
+plt.show()
+# Mean Z-Score Heatmap
+heatmap_data = (
+    gdsc.groupby([
+        "TCGA_DESC",
+        "TARGET_PATHWAY"
+    ])["Z_SCORE"]
     .mean()
     .reset_index()
 )
-
-
-# In[96]:
-
-
-best_cellline_per_drug = (
-    cellline_drug_response.loc[
-        cellline_drug_response.groupby("DRUG_NAME")["LN_IC50"].idxmin()
-    ]
+heatmap_pivot = heatmap_data.pivot(
+    index="TCGA_DESC",
+    columns="TARGET_PATHWAY",
+    values="Z_SCORE"
 )
-
-best_cellline_per_drug.head(10)
-
-
-# In[97]:
-
-
-worst_cellline_per_drug = (
-    cellline_drug_response.loc[
-        cellline_drug_response.groupby("DRUG_NAME")["LN_IC50"].idxmax()
-    ]
-)
-
-worst_cellline_per_drug.head(10)
-
-
-# Analysing the drug response in the cell lines, the best and worst responding cell line for each drug were identified. 
-
-# ## Vizualisation of Cell-line specific drug response
-
-# In[98]:
-
-
-heatmap_cellline = cellline_drug_response.pivot(
-    index="CELL_LINE_NAME",
-    columns="DRUG_NAME",
-    values="LN_IC50"
-)
-plt.figure(figsize=(18,12))
+plt.figure(figsize=(14,8))
 
 sns.heatmap(
-    heatmap_cellline,
-    cmap="coolwarm"
-)
-
-plt.title("Cell Line-Specific Drug Response")
-
-plt.show()
-
-
-# The drug response against the cell lines was visualised using a heatmap. Blue represents higher sensitivity(lower IC50), and red represents lower sensitivity (higher IC50). The white cells represent that the drug was not tested for that cell line. The heatmap is more clumsy due to the larger number of drugs. So, filtration of the top sensitive drugs is required for a much cleaner plot. 
-
-# ## Filteration of top sensitive drugs and visualisation
-
-# In[33]:
-
-
-top_drugs = (
-    cellline_drug_response.groupby("DRUG_NAME")["LN_IC50"]
-    .std()
-    .sort_values(ascending=False)
-    .head(25)
-    .index
-)
-
-filtered_heatmap_cellline = heatmap_cellline[top_drugs]
-
-
-# In[34]:
-
-
-plt.figure(figsize=(18,12))
-
-sns.heatmap(
-    filtered_heatmap_cellline,
-    cmap="coolwarm"
-)
-
-plt.title("Cell Line-Specific Drug Response")
-
-plt.show()
-
-
-# After filtering the top sensitive drugs using standard deviation values, a heatmap was plotted again with the top 25 sensitive drugs. This heatmap shows drug sensitivity across the cell lines. The drugs Gemcitabine, AZD5991, Daporinad, BI-2536 and Dasatinib show the most variable sensitivity across the cell lines compared to other drugs. That is, they have lower IC50 values in certain cell lines than others. This shows that certain drugs are more sensitive in certain cell lines. 
-
-# ## Identification of most selective drugs across cell lines
-
-# In[35]:
-
-
-drug_variability = (
-    cellline_drug_response.groupby("DRUG_NAME")["LN_IC50"]
-    .std()
-    .sort_values(ascending=False)
-)
-
-
-# In[36]:
-
-
-top_variable_cellline = drug_variability.head(25)
-
-plt.figure(figsize=(10,6))
-
-sns.barplot(
-    x=top_variable_cellline.values,
-    y=top_variable_cellline.index
-)
-
-plt.xlabel("Standard Deviation of LN_IC50")
-plt.ylabel("Drug")
-plt.title("Most Selective Drugs Across Cell lines")
-
-plt.show()
-
-
-# The most selective drugs across the cell lines were identified and visualised using a bar plot. The plot shows the top 5 selective drugs( these drugs have more sensitivity in certain cell lines). This was identified using the standard deviation of IC50 values, which shows the variability of the drug response across the cell lines. The Gemcitabine drug shows a higher standard deviation (more variability in response), meaning that the drug works well only in certain cell lines.
-
-# ## Visualisation of cell line-specific response to the drug Gemcitabine
-
-# In[37]:
-
-
-Gemcitabine = gdsc[gdsc["DRUG_NAME"] == "Gemcitabine"]
-gem_summary = (
-    Gemcitabine.groupby("CELL_LINE_NAME")["LN_IC50"]
-    .mean()
-    .sort_values()
-)
-
-top_sensitive = gem_summary.head(20)
-top_resistant = gem_summary.tail(20)
-
-selected_celllines = pd.concat([top_sensitive, top_resistant])
-filtered_gem = Gemcitabine[
-    Gemcitabine["CELL_LINE_NAME"].isin(selected_celllines.index)
-]
-
-
-# In[38]:
-
-
-plt.figure(figsize=(14,6))
-
-sns.boxplot(
-    data=filtered_gem,
-    x="CELL_LINE_NAME",
-    y="LN_IC50",
-    order=selected_celllines.index
-)
-
-plt.xticks(rotation=90)
-
-plt.title("Most Sensitive and Resistant Cell Lines to Gemcitabine")
-
-plt.show()
-
-
-# Taking the most sensitive drug gemcitabine as an example, its response across the cell lines was visualised using a box plot. Since there are more than 700 cell lines, the top sensitive and the resistant cell lines were filtered and plotted against IC50 values of gemcitabine. We can conclude that the drug works well with low IC50 values in the CTB-1 and MC-IXC cancer types compared to other types. 
-
-# ## Visualisation of top drug-sensitive cell lines 
-
-# In[39]:
-
-
-cellline_sensitivity = (
-    gdsc.groupby("CELL_LINE_NAME")["LN_IC50"]
-    .mean()
-    .sort_values()
-)
-top_sensitive = cellline_sensitivity.head(20)
-
-top_sensitive
-
-
-# In[40]:
-
-
-plt.figure(figsize=(10,6))
-
-sns.barplot(
-    x=top_sensitive.values,
-    y=top_sensitive.index
-)
-
-plt.xlabel("Mean LN_IC50")
-
-plt.title("Most Drug-Sensitive Cell Lines")
-
-plt.show()
-
-
-# ## Visualisation of most selective cell lines
-
-# In[41]:
-
-
-cellline_sensitivity = (
-    gdsc.groupby("CELL_LINE_NAME")["LN_IC50"]
-    .std()
-    .sort_values(ascending=False)
-)
-top_sensitive = cellline_sensitivity.head(20)
-
-top_sensitive
-plt.figure(figsize=(10,6))
-
-sns.barplot(
-    x=top_sensitive.values,
-    y=top_sensitive.index
-)
-
-plt.xlabel("Std LN_IC50")
-
-plt.title("Most selective response Cell Lines")
-
-plt.show()
-
-
-# Most drug-sensitive (broadly sensitive to drugs) and drug-selective (strong response to only certain drugs) cell lines were identified using the mean and standard deviation of IC50 values. The cell lines MOLM-13 and MDA-MB-175-VII were the most sensitive and selective cell lines to drugs. DOHH-2 and SU-DHL-5 are also more drug-sensitive cell lines.
-
-# ## Interpretation
-# Yes, certain cell lines respond better to specific drugs. The cell lines MOLM-13 and MDA-MB-175-VII were the most sensitive and selective cell lines to drugs. DOHH-2 and SU-DHL-5 are also more drug-sensitive cell lines. Drugs like Gemcitabine, AZD5991 and Daporinad were more sensitive across all cancer cell lines.
-
-# ## Cluster plot showing the clustering among the top sensitive and resistant cell lines with drug response
-# What patterns exist in the drug response across cell lines?
-# 
-
-# In[103]:
-
-
-cellline_sensitivity = (
-    gdsc.groupby("CELL_LINE_NAME")["LN_IC50"]
-    .mean()
-    .sort_values()
-)
-top_sensitive = cellline_sensitivity.head(25)
-
-top_resistant = cellline_sensitivity.tail(25)
-
-selected_celllines = pd.concat([
-    top_sensitive,
-    top_resistant
-]).index
-cellline_matrix = gdsc.pivot_table(
-    index="CELL_LINE_NAME",
-    columns="DRUG_NAME",
-    values="LN_IC50",
-    aggfunc="mean"
-)
-top_drugs = (
-    gdsc.groupby("DRUG_NAME")["LN_IC50"]
-    .std()
-    .sort_values(ascending=False)
-    .head(25)
-    .index
-)
-filtered_matrix = cellline_matrix.loc[
-    selected_celllines,
-    top_drugs
-]
-filtered_matrix = filtered_matrix.fillna(
-    filtered_matrix.mean()
-)
-sns.clustermap(
-    filtered_matrix,
+    heatmap_pivot,
     cmap="coolwarm",
-    figsize=(14,10)
+    center=0
 )
 
-
-# A cluster heatmap was plotted for drug response across cell lines to see the pattern. The top sensitive and resistant cell lines were only used to get a much cleaner plot. The plot clearly shows some grouping of red and blue representing the resistant and sensitive cell lines, respectively. Clustering within the cell lines shows that they respond similarly. Likewise, the clustering among the drugs shows they work similarly. 
-
-# # Genomic, transcriptomic and epigenomic influence on drug response
-# Are mutations (CNA), gene expression or methylation level influencing drug sensitivity at all?
-
-# In[43]:
-
-
-gdsc[["CNA", "Gene Expression", "Methylation"]].head()
-
-
-# In[44]:
-
-
-gdsc[["CNA", "Gene Expression", "Methylation"]].dtypes
-
-
-# ## Box Plot showing the effect of CNA on drug response
-
-# In[45]:
-
-
-plt.figure(figsize=(8,6))
-
-sns.boxplot(
-    data=gdsc,
-    x="CNA",
-    y="LN_IC50"
-)
-
-plt.title("Effect of CNA on Drug Sensitivity")
+plt.title("Mean Z-SCORE by Cancer Type and Pathway")
 
 plt.show()
-
-
-# In[46]:
-
-
-gdsc.groupby("CNA")["LN_IC50"].describe()
-
-
-# ## Statistical test to identify the significant difference between the two groups
-
-# In[47]:
-
-
-from scipy.stats import ttest_ind
-
-
-# In[48]:
-
-
-cna_yes = gdsc[gdsc["CNA"] == "Y"]["LN_IC50"]
-
-cna_no = gdsc[gdsc["CNA"] == "N"]["LN_IC50"]
-ttest_ind(cna_yes, cna_no)
-
-
-# ## Interpretation
-# 
-# Statistical test gives a p-value = 0.005497744925679454 (<0.05), explaining that there is a statistical difference between the CNA yes group and the CNA no group. The box plot clearly shows that there is a clear difference between the IC50 values of the two groups. Since the IC50 values of the yes group (2.82) are much lower than the no group(3.12), the Copy number (CNA) influences the drug response. A higher copy number can give a better drug response.
-
-# ## Box Plot showing the effect of Gene Expression on drug response
-
-# In[49]:
-
-
-plt.figure(figsize=(8,6))
-
-sns.boxplot(
-    data=gdsc,
-    x="Gene Expression",
-    y="LN_IC50"
-)
-
-plt.title("Gene Expression vs Drug Sensitivity")
-
-plt.show()
-gdsc.groupby("Gene Expression")["LN_IC50"].describe()
-
-
-# ## Statistical test to identify the significant difference between the two groups
-
-# In[50]:
-
-
-expr_high = gdsc[gdsc["Gene Expression"] == "Y"]["LN_IC50"]
-
-expr_low = gdsc[gdsc["Gene Expression"] == "N"]["LN_IC50"]
-
-ttest_ind(expr_high, expr_low)
-
-
-# ## Interpretation
-# 
-# Statistical test gives a p-value = 2.1731496680513867e-22 (<0.05), explaining that there is a statistical difference between the gene expression yes group and the no group. The box plot clearly shows that there is a clear difference between the IC50 values of the two groups. Since the IC50 values of the yes group (2.8) are much lower than the no group(2.38), the gene expression influences the drug response. 
-
-# ## Box Plot showing the effect of Methylation on drug response
-
-# In[51]:
-
-
-plt.figure(figsize=(8,6))
-
-sns.boxplot(
-    data=gdsc,
-    x="Methylation",
-    y="LN_IC50"
-)
-
-plt.title("Methylation vs Drug Sensitivity")
-
-plt.show()
-gdsc.groupby("Methylation")["LN_IC50"].describe()
-
-
-# ## Statistical test to identify the significant difference between the two groups
-
-# In[52]:
-
-
-Methyl_yes = gdsc[gdsc["Methylation"] == "Y"]["LN_IC50"]
-
-Methyl_no = gdsc[gdsc["Methylation"] == "N"]["LN_IC50"]
-
-ttest_ind(Methyl_yes, Methyl_no)
-
-
-# ## Interpretation 
-# 
-# Statistical test gives a p-value = 0.5858384515515012 (>0.05), explaining that there is no statistical difference between the methylation yes group and the no group. The box plot clearly shows that there is no clear difference between the IC50 values of the two groups. Since the IC50 values of the yes group (2.81) are the same as the no group(2.79), the Metylation does not influence the drug response. 
-
-# ## Analysis of Drug response across the pathways
-
-# In[53]:
-
-
+# Analysis of Drug response across the pathways
 gdsc['TARGET_PATHWAY'].value_counts()
-
-
-# In[54]:
-
-
 pathway_response = gdsc.groupby(
     'TARGET_PATHWAY'
 )['LN_IC50'].mean().sort_values()
 
 pathway_response
-
-
-# In[55]:
-
-
 plt.figure(figsize=(10,6))
 
 sns.barplot(
@@ -836,24 +680,12 @@ plt.ylabel("Target Pathway")
 plt.title("Drug Sensitivity Across Target Pathways")
 
 plt.show()
-
-
-# The mean IC50 values were plotted against the pathways. The mitosis pathway shows the lowest IC50 value, explaining that mitosis-inhibiting drugs are more effective. While JNK and p38 signalling pathways show a higher IC50 value (i.e., JNK and p38 signalling pathway drugs show resistance).
-
-# In[56]:
-
-
 heatmap_data = gdsc.pivot_table(
     values='LN_IC50',
     index='TCGA_DESC',
     columns='TARGET_PATHWAY',
     aggfunc='mean'
 )
-
-
-# In[57]:
-
-
 plt.figure(figsize=(14,8))
 
 sns.heatmap(
@@ -865,15 +697,7 @@ sns.heatmap(
 plt.title("Cancer Type vs Pathway Drug Sensitivity")
 
 plt.show()
-
-
-# A heatmap was used to visualise the drug responses in the cancer types against pathways. This clearly shows that in most of the cancer types, the mitosis pathway targeting drugs work better (are more sensitive) than other pathway targeting drugs. We can also see that in the cancer LCML, ABL signal-targeting drugs have a more sensitive response than other drugs.
-
-# ## Pathway-Level Ranking
-
-# In[58]:
-
-
+#pathway level ranking
 pathway_summary = gdsc.groupby(
     'TARGET_PATHWAY'
 ).agg({
@@ -881,30 +705,8 @@ pathway_summary = gdsc.groupby(
 })
 
 pathway_summary
-
-
-# Mitosis pathway targeting drugs are more sensitive (mean IC50 = -1.39), while metabolism targeting drugs are more variable with a higher std =3.9.  
-
-# In[121]:
-
-
 mit = gdsc[gdsc["TARGET_PATHWAY"] == "Mitosis"]
 
 mit_sorted = mit.groupby("DRUG_NAME")[["LN_IC50", "AUC"]].median().reset_index().sort_values(by="LN_IC50")
 
 print(mit_sorted)
-
-
-# **INTERPRETATION**
-# 
-# Targeting the **Mitosis** pathway is biologically unique. Unlike target-specific kinase therapies that require specific genetic mutations to work, mitosis inhibitors target the physical machinery of cell division.
-# 
-# The Broad-Spectrum Cluster **(Docetaxel, Vinblastine, Paclitaxel, Vinorelbine)** disrupt tubulin structures to halt cell division mechanically. This translates to the universal, high-potency blue bands on the left side of the pan-cancer landscape heatmap.
-# 
-# The Selective Cluster **(Alisertib, Tozasertib, ZM447439)** targets small molecules that inhibit regulatory cell-cycle enzymes (Aurora Kinases). Because they rely on specific signaling vulnerabilities rather than physical force, they require higher concentrations across the panel, resulting in positive median values and the widespread orange/red baseline resistance seen across the rest of the heatmap.
-
-# In[ ]:
-
-
-
-
